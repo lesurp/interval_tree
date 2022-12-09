@@ -1,11 +1,12 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use interval_tree::IntervalTreeNode;
 use interval_tree::*;
-use rand::Rng;
+use rand::distributions::Uniform;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 
 pub struct Point2d(f64, f64);
 
-#[derive(Clone, Debug)]
 pub struct Rectangle {
     xmin: f64,
     xmax: f64,
@@ -14,9 +15,8 @@ pub struct Rectangle {
     ymax: f64,
 }
 
-impl Interval for Rectangle {
-    type Point = Point2d;
-
+impl Interval<2> for Rectangle {
+    type Scalar = f64;
     fn min(&self, k: usize) -> f64 {
         match k {
             0 => self.xmin,
@@ -32,14 +32,6 @@ impl Interval for Rectangle {
             _ => unreachable!(),
         }
     }
-
-    fn dimension() -> usize {
-        2
-    }
-
-    fn is_in(&self, p: &Self::Point) -> bool {
-        p.0 >= self.xmin && p.0 <= self.xmax && p.1 >= self.ymin && p.1 <= self.ymax
-    }
 }
 
 impl Rectangle {
@@ -53,7 +45,7 @@ impl Rectangle {
     }
 }
 
-impl Point for Point2d {
+impl Point<2> for Point2d {
     type Scalar = f64;
     fn value(&self, k: usize) -> f64 {
         match k {
@@ -64,35 +56,49 @@ impl Point for Point2d {
     }
 }
 
-fn random_point() -> Point2d {
-    let mut rng = rand::thread_rng();
-    let dist = rand::distributions::Uniform::new(-100.0, 100.0);
-    Point2d(rng.sample(dist), rng.sample(dist))
+struct RectRng {
+    rng: StdRng,
+    range_dist: Uniform<f64>,
 }
 
-fn random_tree(n: u64) -> IntervalTreeNode<Rectangle> {
-    let mut rng = rand::thread_rng();
-    let dist = rand::distributions::Uniform::new(-100.0f64, 100.0);
-    let intervals = (0..n)
-        .map(|_| {
-            let xa = rng.sample(dist);
-            let xb = rng.sample(dist);
-            let ya = rng.sample(dist);
-            let yb = rng.sample(dist);
+impl RectRng {
+    pub fn new() -> RectRng {
+        RectRng {
+            rng: StdRng::seed_from_u64(0),
+            range_dist: rand::distributions::Uniform::new(-100.0, 100.0),
+        }
+    }
 
-            Rectangle::new(xa.min(xb), xa.max(xb), ya.min(yb), ya.max(yb))
-        })
-        .collect();
+    fn random_point(&mut self) -> Point2d {
+        Point2d(
+            self.rng.sample(self.range_dist),
+            self.rng.sample(self.range_dist),
+        )
+    }
 
-    IntervalTreeNode::from_intervals(intervals)
+    fn random_rect(&mut self) -> Rectangle {
+        let xa = self.rng.sample(self.range_dist);
+        let xb = self.rng.sample(self.range_dist);
+        let ya = self.rng.sample(self.range_dist);
+        let yb = self.rng.sample(self.range_dist);
+
+        Rectangle::new(xa.min(xb), xa.max(xb), ya.min(yb), ya.max(yb))
+    }
+
+    fn random_tree(&mut self, n: u64) -> IntervalTreeNode<Rectangle, 2> {
+        let intervals = (0..n).map(|_| self.random_rect()).collect();
+
+        IntervalTreeNode::from_intervals(intervals)
+    }
 }
 
-fn access_n(c: &mut Criterion) {
-    let mut group = c.benchmark_group("access_n");
+fn access_n_point(c: &mut Criterion) {
+    let mut group = c.benchmark_group("access_n_point");
     for size in (0..9).map(|n| 10u64.pow(n)) {
         group.throughput(Throughput::Elements(size));
-        let tree = random_tree(size);
-        let point = random_point();
+        let mut r = RectRng::new();
+        let tree = r.random_tree(size);
+        let point = r.random_point();
         group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, _| {
             b.iter(|| tree.range_search(&point));
         });
@@ -100,5 +106,19 @@ fn access_n(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, access_n);
+fn access_n_rect(c: &mut Criterion) {
+    let mut group = c.benchmark_group("access_n_rect");
+    for size in (0..9).map(|n| 10u64.pow(n)) {
+        group.throughput(Throughput::Elements(size));
+        let mut r = RectRng::new();
+        let tree = r.random_tree(size);
+        let rect = r.random_rect();
+        group.bench_with_input(BenchmarkId::from_parameter(size), &size, |b, _| {
+            b.iter(|| tree.range_search(&rect));
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, access_n_point, access_n_rect);
 criterion_main!(benches);

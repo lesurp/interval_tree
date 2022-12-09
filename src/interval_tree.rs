@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use num_traits::{Num, NumOps, One};
 use std::cmp::PartialOrd;
 
-pub trait Point<const K: usize>: Copy {
+pub trait Point<const K: usize> {
     type Scalar: NumOps + Num + PartialOrd + Copy;
     fn value(&self, k: usize) -> Self::Scalar;
 
@@ -24,7 +24,7 @@ impl<const K: usize, P: Point<K>> Interval<K> for P {
     }
 }
 
-pub trait Interval<const K: usize>: Clone {
+pub trait Interval<const K: usize> {
     type Scalar: NumOps + Num + PartialOrd + Copy;
 
     fn min(&self, k: usize) -> Self::Scalar;
@@ -75,7 +75,7 @@ pub struct IntervalTreeNode<I: Interval<K>, const K: usize> {
 }
 
 impl<const K: usize, I: Interval<K>> IntervalTreeNode<I, K> {
-    pub fn range_search<II: Interval<K, Scalar = I::Scalar>>(&self, x: &II) -> Vec<I> {
+    pub fn range_search<II: Interval<K, Scalar = I::Scalar>>(&self, x: &II) -> Vec<&I> {
         let same_level = match x.cmp_at_k(self.k, self.center_val) {
             Ordering::Less => self
                 .lt_nodes
@@ -101,11 +101,7 @@ impl<const K: usize, I: Interval<K>> IntervalTreeNode<I, K> {
 
         match &self.center {
             NodeContent::Subtree(n) => n.range_search(x),
-            NodeContent::Leaf(intervals) => intervals
-                .iter()
-                .filter(|i| i.overlaps(x))
-                .cloned()
-                .collect(),
+            NodeContent::Leaf(intervals) => intervals.iter().filter(|i| i.overlaps(x)).collect(),
         }
         .into_iter()
         .chain(same_level.into_iter())
@@ -315,9 +311,9 @@ mod tests {
         let mut intervals = tree.range_search(&point);
         assert_eq!(intervals.len(), 3);
         intervals.sort_by(|a, b| a.center(0).partial_cmp(&b.center(0)).unwrap());
-        assert_approx(&intervals[0], Rectangle::new(-5.0, 1.0, 2.0, 4.0));
-        assert_approx(&intervals[1], Rectangle::new(-3.0, 2.0, -4.0, 2.0));
-        assert_approx(&intervals[2], Rectangle::new(0.0, 4.0, -3.0, 2.0));
+        assert_approx(intervals[0], Rectangle::new(-5.0, 1.0, 2.0, 4.0));
+        assert_approx(intervals[1], Rectangle::new(-3.0, 2.0, -4.0, 2.0));
+        assert_approx(intervals[2], Rectangle::new(0.0, 4.0, -3.0, 2.0));
         assert!(intervals[0].overlaps(&point));
         assert!(intervals[1].overlaps(&point));
         assert!(intervals[2].overlaps(&point));
@@ -330,9 +326,9 @@ mod tests {
         let mut intervals = tree.range_search(&rect);
         assert_eq!(intervals.len(), 3);
         intervals.sort_by(|a, b| a.center(0).partial_cmp(&b.center(0)).unwrap());
-        assert_approx(&intervals[0], Rectangle::new(-5.0, 1.0, 2.0, 4.0));
-        assert_approx(&intervals[1], Rectangle::new(2.0, 3.0, 5.0, 6.0));
-        assert_approx(&intervals[2], Rectangle::new(3.0, 7.0, 1.0, 3.0));
+        assert_approx(intervals[0], Rectangle::new(-5.0, 1.0, 2.0, 4.0));
+        assert_approx(intervals[1], Rectangle::new(2.0, 3.0, 5.0, 6.0));
+        assert_approx(intervals[2], Rectangle::new(3.0, 7.0, 1.0, 3.0));
         assert!(intervals[0].overlaps(&rect));
         assert!(intervals[1].overlaps(&rect));
         assert!(intervals[2].overlaps(&rect));

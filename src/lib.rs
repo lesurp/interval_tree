@@ -1,2 +1,2 @@
 mod interval_tree;
-pub use interval_tree::*;
+pub use crate::interval_tree::*;
