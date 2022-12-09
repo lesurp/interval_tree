@@ -1,0 +1,17 @@
+[package]
+name = "interval_tree"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+num-traits = "0.2.15"
+
+[dev-dependencies]
+criterion = "0.3"
+rand = "0.8.5"
+
+[[bench]]
+name = "interval_tree_bench"
+harness = false
