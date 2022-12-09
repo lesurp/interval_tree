@@ -17,7 +17,7 @@ pub struct Rectangle {
 
 impl Interval<2> for Rectangle {
     type Scalar = f64;
-    fn min(&self, k: usize) -> f64 {
+    fn min_at(&self, k: usize) -> f64 {
         match k {
             0 => self.xmin,
             1 => self.ymin,
@@ -25,7 +25,7 @@ impl Interval<2> for Rectangle {
         }
     }
 
-    fn max(&self, k: usize) -> f64 {
+    fn max_at(&self, k: usize) -> f64 {
         match k {
             0 => self.xmax,
             1 => self.ymax,

@@ -1,11 +1,15 @@
 use std::cmp::Ordering;
 
 use crate::iter::IntervalTreeIterator;
-use num_traits::{Num, NumOps, One};
+use num_traits::{NumAssign, NumOps, One};
 use std::cmp::PartialOrd;
 
+pub trait Scalar: NumOps + NumAssign + PartialOrd + Copy + std::iter::Product {}
+// Can be replaced with auto_traits eventually
+impl<S: NumOps + NumAssign + PartialOrd + Copy + std::iter::Product> Scalar for S {}
+
 pub trait Point<const K: usize> {
-    type Scalar: NumOps + Num + PartialOrd + Copy;
+    type Scalar: Scalar;
     fn value(&self, k: usize) -> Self::Scalar;
 
     #[inline(always)]
@@ -16,33 +20,51 @@ pub trait Point<const K: usize> {
 
 impl<const K: usize, P: Point<K>> Interval<K> for P {
     type Scalar = <P as Point<K>>::Scalar;
-    fn min(&self, k: usize) -> Self::Scalar {
+    fn min_at(&self, k: usize) -> Self::Scalar {
         self.value(k)
     }
 
-    fn max(&self, k: usize) -> Self::Scalar {
+    fn max_at(&self, k: usize) -> Self::Scalar {
         self.value(k)
     }
 }
 
-pub trait Interval<const K: usize> {
-    type Scalar: NumOps + Num + PartialOrd + Copy;
+// To avoid adding an Ord bound on Scalar...
+fn max<S: Scalar>(a: S, b: S) -> S {
+    if a >= b {
+        a
+    } else {
+        b
+    }
+}
 
-    fn min(&self, k: usize) -> Self::Scalar;
-    fn max(&self, k: usize) -> Self::Scalar;
-    fn center(&self, k: usize) -> Self::Scalar {
-        (self.min(k) + self.max(k)) / (Self::Scalar::one() + Self::Scalar::one())
+fn min<S: Scalar>(a: S, b: S) -> S {
+    if a <= b {
+        a
+    } else {
+        b
+    }
+}
+
+pub trait Interval<const K: usize> {
+    type Scalar: Scalar;
+
+    fn min_at(&self, k: usize) -> Self::Scalar;
+    fn max_at(&self, k: usize) -> Self::Scalar;
+    fn avg_at(&self, k: usize) -> Self::Scalar {
+        // TODO: there *has* to be a better way creating a 2...
+        (self.min_at(k) + self.max_at(k)) / (Self::Scalar::one() + Self::Scalar::one())
     }
 
     #[inline(always)]
     fn overlaps<I: Interval<K, Scalar = Self::Scalar>>(&self, o: &I) -> bool {
-        (0..Self::dimension()).all(|k| self.overlaps_at_k(o, k))
+        (0..Self::dimension()).all(|k| self.overlaps_at(k, o))
     }
 
     #[inline(always)]
-    fn overlaps_at_k<I: Interval<K, Scalar = Self::Scalar>>(&self, o: &I, k: usize) -> bool {
+    fn overlaps_at<I: Interval<K, Scalar = Self::Scalar>>(&self, k: usize, o: &I) -> bool {
         debug_assert!(k < K);
-        self.min(k) <= o.max(k) && o.min(k) <= self.max(k)
+        self.min_at(k) <= o.max_at(k) && o.min_at(k) <= self.max_at(k)
     }
 
     #[inline(always)]
@@ -50,11 +72,32 @@ pub trait Interval<const K: usize> {
         K
     }
 
-    fn cmp_at_k(&self, k: usize, s: Self::Scalar) -> std::cmp::Ordering {
+    fn try_overlapping_volume<I: Interval<K, Scalar = Self::Scalar>>(
+        &self,
+        o: &I,
+    ) -> Option<Self::Scalar> {
+        let mut v = Self::Scalar::one();
+        for k in 0..Self::dimension() {
+            if self.overlaps_at(k, o) {
+                v *= min(self.max_at(k), o.max_at(k)) - max(self.min_at(k), o.min_at(k));
+            } else {
+                return None;
+            }
+        }
+        Some(v)
+    }
+
+    fn overlapping_volume<I: Interval<K, Scalar = Self::Scalar>>(&self, o: &I) -> Self::Scalar {
+        (0..Self::dimension())
+            .map(|k| min(self.max_at(k), o.max_at(k)) - max(self.min_at(k), o.min_at(k)))
+            .product()
+    }
+
+    fn cmp_at(&self, k: usize, s: Self::Scalar) -> std::cmp::Ordering {
         debug_assert!(k < K);
-        if self.min(k) > s {
+        if self.min_at(k) > s {
             std::cmp::Ordering::Greater
-        } else if self.max(k) < s {
+        } else if self.max_at(k) < s {
             std::cmp::Ordering::Less
         } else {
             std::cmp::Ordering::Equal
@@ -77,7 +120,7 @@ pub struct IntervalTreeNode<I: Interval<K>, const K: usize> {
 
 impl<const K: usize, I: Interval<K>> IntervalTreeNode<I, K> {
     pub fn range_search<II: Interval<K, Scalar = I::Scalar>>(&self, x: &II) -> Vec<&I> {
-        let same_level = match x.cmp_at_k(self.k, self.center_val) {
+        let same_level = match x.cmp_at(self.k, self.center_val) {
             Ordering::Less => self
                 .lt_nodes
                 .as_ref()
@@ -114,16 +157,16 @@ impl<const K: usize, I: Interval<K>> IntervalTreeNode<I, K> {
     }
 
     fn from_intervals_rec(mut intervals: Vec<I>, k: usize) -> IntervalTreeNode<I, K> {
-        intervals.sort_by(|a, b| a.center(k).partial_cmp(&b.center(k)).unwrap());
-        let median = intervals[intervals.len() / 2].center(k);
+        intervals.sort_by(|a, b| a.avg_at(k).partial_cmp(&b.avg_at(k)).unwrap());
+        let median = intervals[intervals.len() / 2].avg_at(k);
 
         let mut lt_nodes = Vec::new();
         let mut center = Vec::new();
         let mut gt_nodes = Vec::new();
         for i in intervals {
-            if i.max(k) < median {
+            if i.max_at(k) < median {
                 lt_nodes.push(i);
-            } else if i.min(k) > median {
+            } else if i.min_at(k) > median {
                 gt_nodes.push(i);
             } else {
                 center.push(i);

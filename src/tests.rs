@@ -12,7 +12,7 @@ pub struct Rectangle {
 
 impl Interval<2> for Rectangle {
     type Scalar = f64;
-    fn min(&self, k: usize) -> f64 {
+    fn min_at(&self, k: usize) -> f64 {
         match k {
             0 => self.xmin,
             1 => self.ymin,
@@ -20,7 +20,7 @@ impl Interval<2> for Rectangle {
         }
     }
 
-    fn max(&self, k: usize) -> f64 {
+    fn max_at(&self, k: usize) -> f64 {
         match k {
             0 => self.xmax,
             1 => self.ymax,
@@ -147,7 +147,7 @@ fn test_tree_querying_point() {
     let tree = basic_tree();
     let mut intervals = tree.range_search(&point);
     assert_eq!(intervals.len(), 3);
-    intervals.sort_by(|a, b| a.center(0).partial_cmp(&b.center(0)).unwrap());
+    intervals.sort_by(|a, b| a.avg_at(0).partial_cmp(&b.avg_at(0)).unwrap());
     assert_approx(intervals[0], Rectangle::new(-5.0, 1.0, 2.0, 4.0));
     assert_approx(intervals[1], Rectangle::new(-3.0, 2.0, -4.0, 2.0));
     assert_approx(intervals[2], Rectangle::new(0.0, 4.0, -3.0, 2.0));
@@ -162,7 +162,7 @@ fn test_tree_querying_rect() {
     let tree = basic_tree();
     let mut intervals = tree.range_search(&rect);
     assert_eq!(intervals.len(), 3);
-    intervals.sort_by(|a, b| a.center(0).partial_cmp(&b.center(0)).unwrap());
+    intervals.sort_by(|a, b| a.avg_at(0).partial_cmp(&b.avg_at(0)).unwrap());
     assert_approx(intervals[0], Rectangle::new(-5.0, 1.0, 2.0, 4.0));
     assert_approx(intervals[1], Rectangle::new(2.0, 3.0, 5.0, 6.0));
     assert_approx(intervals[2], Rectangle::new(3.0, 7.0, 1.0, 3.0));
@@ -175,11 +175,33 @@ fn test_tree_querying_rect() {
 fn test_tree_iter() {
     let tree = basic_tree();
     let mut intervals = basic_tree_rectangles();
-    intervals.sort_by(|a, b| a.center(0).partial_cmp(&b.center(0)).unwrap());
+    intervals.sort_by(|a, b| a.avg_at(0).partial_cmp(&b.avg_at(0)).unwrap());
 
     let collected_interval = tree.iter().collect::<Vec<_>>();
     assert_eq!(collected_interval.len(), intervals.len());
     for (collected, given) in collected_interval.iter().zip(intervals.iter()) {
         assert_approx(*collected, given);
     }
+}
+
+#[test]
+fn test_tree_measure_volume() {
+    let rect = Rectangle::new(1.0, 4.0, 2.5, 6.0);
+    let tree = basic_tree();
+    let mut intervals = tree.range_search(&rect);
+    assert_eq!(intervals.len(), 3);
+    intervals.sort_by(|a, b| a.avg_at(0).partial_cmp(&b.avg_at(0)).unwrap());
+    println!("{:?}", intervals[0]);
+    let areas_assuming_overlap = intervals
+        .iter()
+        .map(|i| i.overlapping_volume(&rect))
+        .collect::<Vec<_>>();
+    let areas_from_try = intervals
+        .iter()
+        .map(|i| i.try_overlapping_volume(&rect).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(areas_from_try[0], 0.0);
+    assert_eq!(areas_from_try[1], 1.0);
+    assert_eq!(areas_from_try[2], 0.5);
+    assert_eq!(areas_from_try, areas_assuming_overlap);
 }
