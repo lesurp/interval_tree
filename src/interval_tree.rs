@@ -3,42 +3,80 @@ use std::cmp::Ordering;
 use num_traits::{Num, NumOps, One};
 use std::cmp::PartialOrd;
 
-pub trait Point {
-    type Scalar: NumOps + Num + PartialOrd;
+pub trait Point<const K: usize>: Copy {
+    type Scalar: NumOps + Num + PartialOrd + Copy;
     fn value(&self, k: usize) -> Self::Scalar;
+
+    #[inline(always)]
+    fn dimension() -> usize {
+        K
+    }
 }
 
-pub trait Interval: Clone {
-    //type Scalar: NumOps + Num + PartialOrd;
-    type Point: Point;
-
-    fn min(&self, k: usize) -> <Self::Point as Point>::Scalar;
-    fn max(&self, k: usize) -> <Self::Point as Point>::Scalar;
-    fn center(&self, k: usize) -> <Self::Point as Point>::Scalar {
-        (self.min(k) + self.max(k))
-            / (<Self::Point as Point>::Scalar::one() + <Self::Point as Point>::Scalar::one())
+impl<const K: usize, P: Point<K>> Interval<K> for P {
+    type Scalar = <P as Point<K>>::Scalar;
+    fn min(&self, k: usize) -> Self::Scalar {
+        self.value(k)
     }
 
-    fn is_in(&self, p: &Self::Point) -> bool;
-    fn dimension() -> usize;
+    fn max(&self, k: usize) -> Self::Scalar {
+        self.value(k)
+    }
 }
 
-pub enum NodeContent<I: Interval> {
-    Subtree(Box<IntervalTreeNode<I>>),
+pub trait Interval<const K: usize>: Clone {
+    type Scalar: NumOps + Num + PartialOrd + Copy;
+
+    fn min(&self, k: usize) -> Self::Scalar;
+    fn max(&self, k: usize) -> Self::Scalar;
+    fn center(&self, k: usize) -> Self::Scalar {
+        (self.min(k) + self.max(k)) / (Self::Scalar::one() + Self::Scalar::one())
+    }
+
+    #[inline(always)]
+    fn overlaps<I: Interval<K, Scalar = Self::Scalar>>(&self, o: &I) -> bool {
+        (0..Self::dimension()).all(|k| self.overlaps_at_k(o, k))
+    }
+
+    #[inline(always)]
+    fn overlaps_at_k<I: Interval<K, Scalar = Self::Scalar>>(&self, o: &I, k: usize) -> bool {
+        debug_assert!(k < K);
+        self.min(k) <= o.max(k) && o.min(k) <= self.max(k)
+    }
+
+    #[inline(always)]
+    fn dimension() -> usize {
+        K
+    }
+
+    fn cmp_at_k(&self, k: usize, s: Self::Scalar) -> std::cmp::Ordering {
+        debug_assert!(k < K);
+        if self.min(k) > s {
+            std::cmp::Ordering::Greater
+        } else if self.max(k) < s {
+            std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Equal
+        }
+    }
+}
+
+pub enum NodeContent<I: Interval<K>, const K: usize> {
+    Subtree(Box<IntervalTreeNode<I, K>>),
     Leaf(Vec<I>),
 }
 
-pub struct IntervalTreeNode<I: Interval> {
-    center: NodeContent<I>,
-    center_val: <I::Point as Point>::Scalar,
+pub struct IntervalTreeNode<I: Interval<K>, const K: usize> {
+    center: NodeContent<I, K>,
+    center_val: I::Scalar,
     k: usize,
-    lt_nodes: Option<Box<IntervalTreeNode<I>>>,
-    gt_nodes: Option<Box<IntervalTreeNode<I>>>,
+    lt_nodes: Option<Box<IntervalTreeNode<I, K>>>,
+    gt_nodes: Option<Box<IntervalTreeNode<I, K>>>,
 }
 
-impl<I: Interval> IntervalTreeNode<I> {
-    pub fn range_search(&self, x: &I::Point) -> Vec<I> {
-        let same_level = match x.value(self.k).partial_cmp(&self.center_val).unwrap() {
+impl<const K: usize, I: Interval<K>> IntervalTreeNode<I, K> {
+    pub fn range_search<II: Interval<K, Scalar = I::Scalar>>(&self, x: &II) -> Vec<I> {
+        let same_level = match x.cmp_at_k(self.k, self.center_val) {
             Ordering::Less => self
                 .lt_nodes
                 .as_ref()
@@ -47,25 +85,38 @@ impl<I: Interval> IntervalTreeNode<I> {
                 .gt_nodes
                 .as_ref()
                 .map_or(Vec::new(), |n| n.range_search(x)),
-            Ordering::Equal => Vec::new(),
+            Ordering::Equal => self
+                .lt_nodes
+                .as_ref()
+                .map_or(Vec::new(), |n| n.range_search(x))
+                .into_iter()
+                .chain(
+                    self.gt_nodes
+                        .as_ref()
+                        .map_or(Vec::new(), |n| n.range_search(x))
+                        .into_iter(),
+                )
+                .collect(),
         };
 
         match &self.center {
             NodeContent::Subtree(n) => n.range_search(x),
-            NodeContent::Leaf(intervals) => {
-                intervals.iter().filter(|i| i.is_in(x)).cloned().collect()
-            }
+            NodeContent::Leaf(intervals) => intervals
+                .iter()
+                .filter(|i| i.overlaps(x))
+                .cloned()
+                .collect(),
         }
         .into_iter()
         .chain(same_level.into_iter())
         .collect()
     }
 
-    pub fn from_intervals(is: Vec<I>) -> IntervalTreeNode<I> {
+    pub fn from_intervals(is: Vec<I>) -> IntervalTreeNode<I, K> {
         IntervalTreeNode::from_intervals_rec(is, 0)
     }
 
-    fn from_intervals_rec(mut intervals: Vec<I>, k: usize) -> IntervalTreeNode<I> {
+    fn from_intervals_rec(mut intervals: Vec<I>, k: usize) -> IntervalTreeNode<I, K> {
         intervals.sort_by(|a, b| a.center(k).partial_cmp(&b.center(k)).unwrap());
         let median = intervals[intervals.len() / 2].center(k);
 
@@ -128,9 +179,8 @@ mod tests {
         ymax: f64,
     }
 
-    impl Interval for Rectangle {
-        type Point = (f64, f64);
-
+    impl Interval<2> for Rectangle {
+        type Scalar = f64;
         fn min(&self, k: usize) -> f64 {
             match k {
                 0 => self.xmin,
@@ -146,14 +196,6 @@ mod tests {
                 _ => unreachable!(),
             }
         }
-
-        fn dimension() -> usize {
-            2
-        }
-
-        fn is_in(&self, p: &Self::Point) -> bool {
-            p.0 >= self.xmin && p.0 <= self.xmax && p.1 >= self.ymin && p.1 <= self.ymax
-        }
     }
 
     impl Rectangle {
@@ -167,7 +209,7 @@ mod tests {
         }
     }
 
-    impl Point for (f64, f64) {
+    impl Point<2> for (f64, f64) {
         type Scalar = f64;
         fn value(&self, k: usize) -> f64 {
             match k {
@@ -178,7 +220,7 @@ mod tests {
         }
     }
 
-    fn basic_tree() -> IntervalTreeNode<Rectangle> {
+    fn basic_tree() -> IntervalTreeNode<Rectangle, 2> {
         let intervals = vec![
             Rectangle::new(2.0, 3.0, 5.0, 6.0),
             Rectangle::new(3.0, 7.0, 1.0, 3.0),
@@ -267,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tree_querying() {
+    fn test_tree_querying_point() {
         let point = (1.0, 2.0);
         let tree = basic_tree();
         let mut intervals = tree.range_search(&point);
@@ -276,5 +318,23 @@ mod tests {
         assert_approx(&intervals[0], Rectangle::new(-5.0, 1.0, 2.0, 4.0));
         assert_approx(&intervals[1], Rectangle::new(-3.0, 2.0, -4.0, 2.0));
         assert_approx(&intervals[2], Rectangle::new(0.0, 4.0, -3.0, 2.0));
+        assert!(intervals[0].overlaps(&point));
+        assert!(intervals[1].overlaps(&point));
+        assert!(intervals[2].overlaps(&point));
+    }
+
+    #[test]
+    fn test_tree_querying_rect() {
+        let rect = Rectangle::new(1.0, 4.0, 2.5, 6.0);
+        let tree = basic_tree();
+        let mut intervals = tree.range_search(&rect);
+        assert_eq!(intervals.len(), 3);
+        intervals.sort_by(|a, b| a.center(0).partial_cmp(&b.center(0)).unwrap());
+        assert_approx(&intervals[0], Rectangle::new(-5.0, 1.0, 2.0, 4.0));
+        assert_approx(&intervals[1], Rectangle::new(2.0, 3.0, 5.0, 6.0));
+        assert_approx(&intervals[2], Rectangle::new(3.0, 7.0, 1.0, 3.0));
+        assert!(intervals[0].overlaps(&rect));
+        assert!(intervals[1].overlaps(&rect));
+        assert!(intervals[2].overlaps(&rect));
     }
 }
