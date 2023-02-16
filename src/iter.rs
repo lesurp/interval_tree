@@ -17,7 +17,7 @@ impl<'a, I: Interval<K>, const K: usize> Iterator for NodeContentIter<'a, I, K> 
 }
 
 impl<'a, I: Interval<K>, const K: usize> NodeContentIter<'a, I, K> {
-    pub fn new(node_content: &'a NodeContent<I, K>) -> Self {
+    pub(crate) fn new(node_content: &'a NodeContent<I, K>) -> Self {
         match node_content {
             NodeContent::Subtree(i) => NodeContentIter::Subtree(i.iter()),
             NodeContent::Leaf(v) => NodeContentIter::Leaf(v.iter()),
@@ -26,7 +26,7 @@ impl<'a, I: Interval<K>, const K: usize> NodeContentIter<'a, I, K> {
 }
 
 impl<'a, I: Interval<K>, const K: usize> IntervalTreeIterator<'a, I, K> {
-    pub fn new(curr_node: &'a IntervalTreeNode<I, K>) -> Self {
+    pub(crate) fn new(curr_node: &'a IntervalTreeNode<I, K>) -> Self {
         let it = if let Some(lt) = &curr_node.lt_nodes {
             CurrentIterationState::Left(IntervalTreeIterator::new(lt))
         } else {
