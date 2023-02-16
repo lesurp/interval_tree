@@ -3,6 +3,7 @@ name = "kd_interval_tree"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+description = "Implements a K-dimensional interval tree, for fast interval-overlap lookup. Binary-tree based implementation, i.e. O(log(n)) lookups."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
