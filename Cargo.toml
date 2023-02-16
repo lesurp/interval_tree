@@ -10,7 +10,7 @@ license = "MIT"
 num-traits = "0.2.15"
 
 [dev-dependencies]
-criterion = "0.3"
+criterion = "0.4"
 rand = "0.8.5"
 
 [[bench]]
