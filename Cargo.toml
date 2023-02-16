@@ -1,6 +1,6 @@
 [package]
 name = "kd_interval_tree"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 description = "Implements a K-dimensional interval tree, for fast interval-overlap lookup. Binary-tree based implementation, i.e. O(log(n)) lookups."
